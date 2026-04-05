@@ -1,4 +1,5 @@
 import json
+import re
 import anthropic
 import streamlit as st
 
@@ -61,8 +62,6 @@ def verify_collateral(
 SOURCE OF TRUTH (from official policy documents):
 {facts_text}
 
-{"Source policy document images follow (marked SOURCE)." if source_pdf_images else ""}
-
 Your task: Review the marketing collateral content below and check every specific claim \
 (coverage amounts, waiting periods, premium figures, plan names, insurer name, benefits, limits) \
 against the source of truth.
@@ -99,9 +98,13 @@ Return ONLY valid JSON — no markdown, no explanation, just the JSON object:
     )
 
     raw = response.content[0].text.strip()
-    # Strip markdown code fences if Claude wraps JSON anyway
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    # Strip markdown code fences robustly
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw.strip())
+    except json.JSONDecodeError:
+        return {
+            "summary": "Could not parse verification result. Claude returned an unexpected format.",
+            "check_items": [],
+        }
