@@ -4,7 +4,10 @@ from pptx import Presentation
 
 def extract_ppt(file_bytes: bytes) -> tuple[str, list[bytes]]:
     """Extract all text and embedded images from a PPT file."""
-    prs = Presentation(io.BytesIO(file_bytes))
+    try:
+        prs = Presentation(io.BytesIO(file_bytes))
+    except Exception:
+        return "", []
     text_parts = []
     images = []
 

@@ -15,6 +15,7 @@ def extract_excel_facts(file_bytes: bytes) -> dict:
         facts["policy_info"] = _extract_policy_info(all_sheets["Policy Info"])
 
     if "Modular Plan" in all_sheets:
+        # Re-read with header=None to preserve raw row indices (plan names at row 1, benefits at row 6+)
         raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name="Modular Plan",
                             header=None, engine="openpyxl")
         facts["plans"] = _extract_modular_plans(raw)
