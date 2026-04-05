@@ -6,8 +6,6 @@ from extractors.image import image_to_base64, get_media_type
 from extractors.ppt import extract_ppt
 from verifier import format_facts, verify_collateral
 from tabs import _status_icon
-import db
-import storage
 
 
 def _extract_source(file) -> tuple[dict, list[tuple[str, str]]]:
@@ -95,15 +93,6 @@ def render():
         st.error("Could not extract any data from source documents.")
         return
 
-    verification_id = db.insert_verification(label, source_names)
-
-    for source_file in source_files:
-        source_file.seek(0)
-        try:
-            storage.upload_file(verification_id, source_file.name, source_file.read())
-        except Exception:
-            pass  # storage failure doesn't block verification
-
     st.subheader("Results")
 
     for col_file in collateral_files:
@@ -120,18 +109,6 @@ def render():
         pass_count = sum(1 for i in items if i["status"] == "correct")
         fail_count = sum(1 for i in items if i["status"] == "incorrect")
         uncertain_count = sum(1 for i in items if i["status"] == "uncertain")
-
-        collateral_result_id = db.insert_collateral_result(
-            verification_id, col_file.name, col_type,
-            result.get("summary", ""), pass_count, fail_count, uncertain_count,
-        )
-        db.insert_check_items(collateral_result_id, items)
-
-        col_file.seek(0)
-        try:
-            storage.upload_file(verification_id, col_file.name, col_file.read())
-        except Exception:
-            pass  # storage failure doesn't block verification results
 
         header_icon = "❌" if fail_count else "✅"
         with st.expander(
