@@ -12,22 +12,20 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.title("🔍 Collateral Verifier")
-    st.markdown("**An internal tool for the HealthFlex Product Success team.**")
     st.markdown(
-        "Upload your source documents (placement slip, rater, policy copy) and up to 5 "
-        "marketing collaterals (emailers, PDFs, images, PPTs). The tool checks whether "
-        "the information in your collaterals is accurate against the source."
+        "Verify that your marketing collaterals — emailers, PDFs, images, or PPTs — "
+        "are accurate against your source documents like the placement slip, rater, or policy copy."
     )
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("**📄 Source docs**\nPlacement slip · Rater · Policy copy")
+        st.markdown("**1. Upload source docs**\nPlacement slip · Rater · Policy copy")
     with col2:
-        st.markdown("**🎨 Collaterals**\nEmailers · PDFs · Images · PPTs (up to 5)")
+        st.markdown("**2. Upload collaterals**\nEmailers · PDFs · Images · PPTs (up to 5)")
     with col3:
-        st.markdown("**✅ Results**\nCorrect · Incorrect · Uncertain — per collateral")
+        st.markdown("**3. Get results**\nCorrect · Incorrect · Uncertain — per collateral")
     st.markdown("---")
-    pwd = st.text_input("Enter access password to continue", type="password")
+    pwd = st.text_input("Password", type="password", label_visibility="collapsed", placeholder="Enter password to continue")
     if st.button("Continue →"):
         if pwd == st.secrets.get("APP_PASSWORD", ""):
             st.session_state.authenticated = True
