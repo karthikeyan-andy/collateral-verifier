@@ -1,9 +1,7 @@
+import pandas as pd
 import streamlit as st
+from tabs import _status_icon
 import db
-
-
-def _status_icon(status: str) -> str:
-    return {"correct": "✅", "incorrect": "❌", "uncertain": "⚠️"}.get(status, "❓")
 
 
 def render():
@@ -37,8 +35,9 @@ def render():
 
                 items = db.fetch_check_items(col["id"])
                 if items:
-                    import pandas as pd
-                    df = pd.DataFrame(items)[["field_name", "claimed_value", "actual_value", "status"]]
+                    df = pd.DataFrame(items).reindex(
+                        columns=["field_name", "claimed_value", "actual_value", "status"]
+                    )
                     df.columns = ["Field", "Collateral Claims", "Source Says", "Status"]
                     df["Status"] = df["Status"].apply(lambda s: _status_icon(s) + " " + s)
                     st.dataframe(df, use_container_width=True, hide_index=True)

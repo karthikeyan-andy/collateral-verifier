@@ -1,9 +1,11 @@
+import pandas as pd
 import streamlit as st
 from extractors.excel import extract_excel_facts
 from extractors.pdf import extract_pdf_images
 from extractors.image import image_to_base64, get_media_type
 from extractors.ppt import extract_ppt
 from verifier import format_facts, verify_collateral
+from tabs import _status_icon
 import db
 import storage
 
@@ -37,10 +39,6 @@ def _extract_collateral(file) -> tuple[str, list[tuple[str, str]], str]:
         b64_imgs = [image_to_base64(img, "slide.png") for img in imgs]
         return text, b64_imgs, "ppt"
     return "", [], "unknown"
-
-
-def _status_icon(status: str) -> str:
-    return {"correct": "✅", "incorrect": "❌", "uncertain": "⚠️"}.get(status, "❓")
 
 
 def render():
@@ -101,18 +99,22 @@ def render():
 
     for source_file in source_files:
         source_file.seek(0)
-        storage.upload_file(verification_id, source_file.name, source_file.read())
+        try:
+            storage.upload_file(verification_id, source_file.name, source_file.read())
+        except Exception:
+            pass  # storage failure doesn't block verification
 
     st.subheader("Results")
 
     for col_file in collateral_files:
         col_file.seek(0)
-        storage.upload_file(verification_id, col_file.name, col_file.read())
-
-        col_file.seek(0)
-        with st.spinner(f"Verifying {col_file.name}..."):
-            col_text, col_images, col_type = _extract_collateral(col_file)
-            result = verify_collateral(facts_text, all_source_pdf_images, col_text, col_images)
+        try:
+            with st.spinner(f"Verifying {col_file.name}..."):
+                col_text, col_images, col_type = _extract_collateral(col_file)
+                result = verify_collateral(facts_text, all_source_pdf_images, col_text, col_images)
+        except Exception as e:
+            st.error(f"Failed to verify {col_file.name}: {e}")
+            continue
 
         items = result.get("check_items", [])
         pass_count = sum(1 for i in items if i["status"] == "correct")
@@ -125,6 +127,12 @@ def render():
         )
         db.insert_check_items(collateral_result_id, items)
 
+        col_file.seek(0)
+        try:
+            storage.upload_file(verification_id, col_file.name, col_file.read())
+        except Exception:
+            pass  # storage failure doesn't block verification results
+
         header_icon = "❌" if fail_count else "✅"
         with st.expander(
             f"{header_icon} {col_file.name} — {fail_count} errors, {uncertain_count} uncertain",
@@ -133,11 +141,13 @@ def render():
             st.write(result.get("summary", ""))
 
             if items:
-                import pandas as pd
-                df = pd.DataFrame(items)[["field_name", "claimed_value", "actual_value", "status"]]
+                df = pd.DataFrame(items).reindex(
+                    columns=["field_name", "claimed_value", "actual_value", "status"]
+                )
                 df.columns = ["Field", "Collateral Claims", "Source Says", "Status"]
-                df["Status"] = df["Status"].apply(lambda s: _status_icon(s) + " " + s)
-
+                df["Status"] = df["Status"].apply(
+                    lambda s: _status_icon(s) + " " + s if isinstance(s, str) else "❓"
+                )
                 st.dataframe(
                     df,
                     use_container_width=True,
