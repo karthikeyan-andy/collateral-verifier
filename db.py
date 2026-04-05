@@ -3,6 +3,7 @@ import streamlit as st
 from collections import Counter
 
 
+@st.cache_resource
 def _client() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
