@@ -1,6 +1,7 @@
+import base64
 import json
 import re
-import anthropic
+import google.generativeai as genai
 import streamlit as st
 
 
@@ -12,7 +13,6 @@ def format_facts(facts_list: list) -> str:
                 lines.append(f"\n=== SHEET: {sheet_name} ===")
                 lines.append(content)
 
-        # Legacy structured formats (kept for compatibility)
         if "policy_info" in facts:
             lines.append("=== POLICY INFORMATION ===")
             for k, v in facts["policy_info"].items():
@@ -31,30 +31,6 @@ def format_facts(facts_list: list) -> str:
                 lines.append(f"  {b['name']}: \u20b9{b['premium']}")
 
     return "\n".join(lines)
-
-
-def _build_content(
-    prompt: str,
-    collateral_text: str,
-    all_images: list,
-) -> list:
-    full_text = prompt
-    if collateral_text:
-        full_text += f"\n\nCOLLATERAL TEXT CONTENT:\n{collateral_text}"
-
-    content = [{"type": "text", "text": full_text}]
-
-    for b64, media_type in all_images:
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": b64,
-            },
-        })
-
-    return content
 
 
 def verify_collateral(
@@ -91,26 +67,26 @@ Return ONLY valid JSON — no markdown, no explanation, just the JSON object:
   ]
 }}"""
 
-    # Source PDF images come first (context), then collateral images
-    all_images = source_pdf_images + collateral_images
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
-    content = _build_content(prompt, collateral_text, all_images)
+    parts = [prompt]
 
-    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": content}],
-    )
+    if collateral_text:
+        parts.append(f"\n\nCOLLATERAL TEXT CONTENT:\n{collateral_text}")
 
-    raw = response.content[0].text.strip()
-    # Strip markdown code fences robustly
+    for b64, media_type in (source_pdf_images + collateral_images):
+        image_bytes = base64.b64decode(b64)
+        parts.append({"inline_data": {"mime_type": media_type, "data": image_bytes}})
+
+    response = model.generate_content(parts)
+    raw = response.text.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     try:
         return json.loads(raw.strip())
     except json.JSONDecodeError:
         return {
-            "summary": "Could not parse verification result. Claude returned an unexpected format.",
+            "summary": "Could not parse verification result. Model returned an unexpected format.",
             "check_items": [],
         }
