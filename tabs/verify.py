@@ -1,4 +1,6 @@
-import pandas as pd
+import io
+import re
+import urllib.request
 import streamlit as st
 from extractors.excel import extract_excel_facts
 from extractors.pdf import extract_pdf_images
@@ -8,8 +10,21 @@ from verifier import format_facts, verify_collateral
 from tabs import _status_icon
 
 
+def _gsheets_to_bytes(url: str) -> bytes | None:
+    """Convert a Google Sheets share URL to CSV bytes."""
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", url)
+    if not match:
+        return None
+    sheet_id = match.group(1)
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    try:
+        with urllib.request.urlopen(export_url, timeout=15) as r:
+            return r.read()
+    except Exception:
+        return None
+
+
 def _extract_source(file) -> tuple[dict, list[tuple[str, str]]]:
-    """Returns (facts_dict, pdf_images_b64)."""
     name = file.name.lower()
     data = file.read()
     if name.endswith((".xlsx", ".xls")):
@@ -22,7 +37,6 @@ def _extract_source(file) -> tuple[dict, list[tuple[str, str]]]:
 
 
 def _extract_collateral(file) -> tuple[str, list[tuple[str, str]], str]:
-    """Returns (text, images_b64, file_type)."""
     name = file.name.lower()
     data = file.read()
     if name.endswith((".jpg", ".jpeg", ".png", ".webp")):
@@ -52,8 +66,13 @@ def render():
             key="source_files",
         )
 
+        gsheets_url = st.text_input(
+            "Or paste a Google Sheets link (must be set to 'Anyone with link can view')",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+        )
+
         collateral_files = st.file_uploader(
-            "Collaterals to verify (emailers) — max 5",
+            "Collaterals to verify — max 5",
             accept_multiple_files=True,
             type=["jpg", "jpeg", "png", "webp", "pdf", "pptx"],
             key="collateral_files",
@@ -64,8 +83,9 @@ def render():
     if not submitted:
         return
 
-    if not source_files:
-        st.error("Upload at least one source document.")
+    has_source = bool(source_files) or bool(gsheets_url.strip())
+    if not has_source:
+        st.error("Upload at least one source document or paste a Google Sheets link.")
         return
     if not collateral_files:
         st.error("Upload at least one collateral.")
@@ -80,13 +100,22 @@ def render():
     with st.spinner("Extracting source documents..."):
         all_facts = []
         all_source_pdf_images = []
-        source_names = []
+
         for f in source_files:
             facts, pdf_imgs = _extract_source(f)
-            source_names.append(f.name)
             if facts:
                 all_facts.append(facts)
             all_source_pdf_images.extend(pdf_imgs)
+
+        if gsheets_url.strip():
+            with st.spinner("Fetching Google Sheet..."):
+                sheet_bytes = _gsheets_to_bytes(gsheets_url.strip())
+                if sheet_bytes:
+                    facts = extract_excel_facts(sheet_bytes)
+                    if facts:
+                        all_facts.append(facts)
+                else:
+                    st.warning("Could not fetch Google Sheet. Make sure it's set to 'Anyone with link can view'.")
 
     facts_text = format_facts(all_facts)
     if not facts_text and not all_source_pdf_images:
@@ -106,7 +135,6 @@ def render():
             continue
 
         items = result.get("check_items", [])
-        pass_count = sum(1 for i in items if i["status"] == "correct")
         fail_count = sum(1 for i in items if i["status"] == "incorrect")
         uncertain_count = sum(1 for i in items if i["status"] == "uncertain")
 
@@ -118,18 +146,16 @@ def render():
             st.write(result.get("summary", ""))
 
             if items:
-                df = pd.DataFrame(items).reindex(
-                    columns=["field_name", "claimed_value", "actual_value", "status"]
-                )
-                df.columns = ["Field", "Collateral Claims", "Source Says", "Status"]
-                df["Status"] = df["Status"].apply(
-                    lambda s: _status_icon(s) + " " + s if isinstance(s, str) else "❓"
-                )
-                st.dataframe(
-                    df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Status": st.column_config.TextColumn(width="small"),
-                    },
-                )
+                # Build table without pandas
+                col_headers = ["Field", "Collateral Claims", "Source Says", "Status"]
+                rows = []
+                for item in items:
+                    status_raw = item.get("status", "")
+                    status_display = _status_icon(status_raw) + " " + status_raw if status_raw else "❓"
+                    rows.append({
+                        "Field": item.get("field_name", ""),
+                        "Collateral Claims": item.get("claimed_value", ""),
+                        "Source Says": item.get("actual_value", ""),
+                        "Status": status_display,
+                    })
+                st.table(rows)

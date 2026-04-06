@@ -7,6 +7,12 @@ import streamlit as st
 def format_facts(facts_list: list) -> str:
     lines = []
     for facts in facts_list:
+        if "raw_sheets" in facts:
+            for sheet_name, content in facts["raw_sheets"].items():
+                lines.append(f"\n=== SHEET: {sheet_name} ===")
+                lines.append(content)
+
+        # Legacy structured formats (kept for compatibility)
         if "policy_info" in facts:
             lines.append("=== POLICY INFORMATION ===")
             for k, v in facts["policy_info"].items():
